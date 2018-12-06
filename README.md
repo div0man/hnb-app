@@ -8,6 +8,12 @@ stdout with user-specified column delimiter.
 
 Only `libcurl`
 
+## External libraries
+
+jsmn, a json parser library bundled in:
+
+`jsmn.h` & `jsmn.c` [v1.0.0](https://github.com/zserge/jsmn/releases/tag/v1.0.0)
+
 ## Compiling
 
 Simply run `make`
