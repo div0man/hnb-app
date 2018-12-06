@@ -1,3 +1,7 @@
+# Super-Simple makefile
+# Adapted from: https://spin.atomicobject.com/2016/08/26/makefile-c-projects/
+# to link with external libraries as well.
+
 TARGET_EXEC ?= hnb-app
 
 BUILD_DIR ?= ./build
