@@ -1,18 +1,31 @@
 #include "jstab.h"
+#include "jsmn-extra.h"
 
 /* check whether we have suitable data */
 static int jstab_verify_data(jsmnts_t *ts, int ind);
 
-int jstab_morph(jsmnts_t *ts, jstab_t *tab, int ind)
+int jstab_from_json_array(char *str, size_t len, jstab_t *tab, int ind)
 {
+	jsmnts_t ts = (jsmnts_t){str, len, NULL, 0};
+
+	/* parse json data */
+	int ntok = jsmnts_parse(&ts);
+
+	if (ntok <= 0) {
+		fprintf(stderr, "ERROR: jsmnts_parse failed: %d\n", ntok);
+		ts.str = NULL; /* we don't want to clear the string */
+		jsmnts_clear(&ts);
+		return 0;
+	}
+
 	/* clean up any garbage from before */
 	jstab_clear(tab);
 
-	tab->nr = jstab_verify_data(ts, ind);
+	tab->nr = jstab_verify_data(&ts, ind);
 	if (tab->nr > 0) {
 		/* if we're here, it means that all tokens in the array are objects with
 		 * only key-value pairs and consistent number of rows */
-		tab->nc = ts->tok[ind + 1].size;
+		tab->nc = ts.tok[ind + 1].size;
 
 		/* allocate storage for all table pointers at once to avoid multiple
 		 * syscalls */
@@ -22,8 +35,8 @@ int jstab_morph(jsmnts_t *ts, jstab_t *tab, int ind)
 							sizeof(char**));
 
 		for (int i = 0, j = ind + 2; i < tab->nc; ++i, j+=2) {
-			tab->keys[i] = &ts->str[ts->tok[j].start];
-			ts->str[ts->tok[j].end] = '\0';
+			tab->keys[i] = &ts.str[ts.tok[j].start];
+			ts.str[ts.tok[j].end] = '\0';
 		}
 
 		/* set cell pointers and slice the data blob */
@@ -32,18 +45,18 @@ int jstab_morph(jsmnts_t *ts, jstab_t *tab, int ind)
 			tab->rows[k] = &tab->keys[tab->nc + tab->nr + k * tab->nc];
 			for (int i = 0, j = ind + 3 + k * (tab->nc*2+1); i < tab->nc; ++i, 
 					j+=2) {
-				tab->rows[k][i] = &ts->str[ts->tok[j].start];
-				ts->str[ts->tok[j].end] = '\0';
+				tab->rows[k][i] = &ts.str[ts.tok[j].start];
+				ts.str[ts.tok[j].end] = '\0';
 			}
 		}
 
 		/* hand over the blob from ts to tab */
-		tab->blob = ts->str;
-		tab->sz = ts->len + 1;
+		tab->blob = ts.str;
+		ts.str = NULL;
+		tab->sz = ts.len + 1;
 
-		/* clear jsmnts, don't free the string because it now belongs to tab */
-		free(ts->tok);
-		*ts = (jsmnts_t){0};
+		/* clean up */
+		jsmnts_clear(&ts);
 
 		return tab->nr;
 	}

@@ -20,7 +20,7 @@ Simply run `make`
 
 ## Usage
 
-    hnb-app [query] [delimiter]
+    hnb-app [<query> [delimiter]]
 
 ### Simple Example
 

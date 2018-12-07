@@ -4,25 +4,27 @@
 #include <curl/curl.h>
 #include "hnb-api.h"
 
+/* args wrapper, we can pass only 1 arg to curl write function */
+typedef struct {
+	char *str;
+	size_t *len;
+} store_t;
+
 /* curl callback function to write received data */
-static size_t hnbapi_write_jsmnts_callback(void *response, size_t bs, 
+static size_t hnbapi_write_callback(void *response, size_t bs, 
 		size_t blocks, void *store);
 
-/* query the API and write the response into ts */
-int hnbapi_http_get_jsmnts(char *url, char *post_fields, jsmnts_t *ts)
+/* query the API and write the response into str and update *len */
+int hnbapi_http_get(char *url, char *post_fields, char **str, size_t *len)
 {
 	CURL *curl;
 	CURLcode res;
-
-	/* clean up any garbage from before */
-	jsmnts_clear(ts);
-
-	int ntok = 0;
+	store_t store = (store_t){*str, len};
+	int ret;
 
 	curl_global_init(CURL_GLOBAL_ALL);
 
 	curl = curl_easy_init();
-
 	if(curl) {
 		/* configure http request */
 		curl_easy_setopt(curl, CURLOPT_URL, url);
@@ -30,8 +32,8 @@ int hnbapi_http_get_jsmnts(char *url, char *post_fields, jsmnts_t *ts)
  
 		/* configure curl callback */
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, 
-				hnbapi_write_jsmnts_callback);
- 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)ts);
+				hnbapi_write_callback);
+ 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&store);
 
 		/* execute http request */
 		res = curl_easy_perform(curl);
@@ -40,49 +42,47 @@ int hnbapi_http_get_jsmnts(char *url, char *post_fields, jsmnts_t *ts)
 		curl_easy_cleanup(curl);
 
 		if(res == CURLE_OK) {
-			ntok = jsmnts_parse(ts);
-			if (ntok <= 0) {
-				fprintf(stderr, "ERROR: jsmnts_parse failed: %d\n", ntok);
-				jsmnts_clear(ts);
-				ntok = 0;
-			}
+			*str = store.str;
+			ret = 0;
 		}
 		else {
 			fprintf(stderr, "ERROR: curl_easy_perform() failed: %s\n",
 					curl_easy_strerror(res));
-			jsmnts_clear(ts);
-			ntok = 0;
+			ret = -1;
 		}
+	}
+	else {
+		fprintf(stderr, "ERROR: curl_easy_init() failed");
+		ret = -1;
 	}
 
 	curl_global_cleanup();
-	return ntok;
+	return ret;
 }
 
-static size_t hnbapi_write_jsmnts_callback(void *response, size_t bs,
+static size_t hnbapi_write_callback(void *response, size_t bs,
 		size_t blocks, void *store)
 {
 	size_t sz = bs * blocks;
-	jsmnts_t *ts = (jsmnts_t *)store;
+	store_t *st = (store_t *)store;
 
 	/* guard against overflow */
-	if (ts->len > SIZE_MAX - sz - 1) {
+	if (*st->len > SIZE_MAX - sz - 1) {
 		fprintf(stderr, "ERROR: Data too big to address\n");
 		return 0;
 	}
 
 	/* store response into a string, expand as needed */
-	char *ps = realloc(ts->str, ts->len + sz + 1);
+	char *ps = realloc(st->str, *st->len + sz + 1);
 	if (ps == NULL) {
 		fprintf(stderr, "ERROR: Insufficient memory for storing HTTP response "
 				"string\n");
 		return 0;
 	}
-	ts->str = ps;
-	memcpy(&(ts->str[ts->len]), response, sz);
-	ts->len += sz;
-	ts->str[ts->len] = '\0';
+	st->str = ps;
+	memcpy(&(st->str[*st->len]), response, sz);
+	*st->len += sz;
+	st->str[*st->len] = '\0';
 
 	return sz;
 }
-

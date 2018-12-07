@@ -4,7 +4,7 @@ void jsmnts_clear(jsmnts_t *ts)
 {
 	if (ts->str != NULL)
 		free(ts->str);
-	if (ts->str != NULL)
+	if (ts->tok != NULL)
 		free(ts->tok);
 	*ts = (jsmnts_t){0};
 }
