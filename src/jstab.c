@@ -1,5 +1,6 @@
 #include "jstab.h"
 #include "jsmn-extra.h"
+#include <string.h>
 
 /* check whether we have suitable data */
 static int jstab_verify_data(jsmnts_t *ts, int ind);
@@ -34,28 +35,56 @@ int jstab_from_json_array(char *str, size_t len, jstab_t *tab, int ind)
 							 (size_t)tab->nr * (size_t)tab->nc ) * 
 							sizeof(char**));
 
-		for (int i = 0, j = ind + 2; i < tab->nc; ++i, j+=2) {
-			tab->keys[i] = &ts.str[ts.tok[j].start];
-			ts.str[ts.tok[j].end] = '\0';
+		/* compact the blob to contain only lined up '\0' terminated strings and
+		 * set table pointers accordingly */
+		tab->blob = ts.str;
+		tab->sz = 0;
+		/* stash 1st row values because they get overwritten below */
+		char *stash = malloc((size_t)ts.tok[ind+1].end - 
+				(size_t)ts.tok[ind+1].start);
+		size_t ssz = 0;
+		for (int i = 0, j = ind + 3; i < tab->nc; ++i, j+=2) {
+			size_t len = (size_t)ts.tok[j].end - (size_t)ts.tok[j].start;
+			memcpy(&stash[ssz], &ts.str[ts.tok[j].start], len);
+			stash[ssz + len] = '\0';
+			ssz += len + 1;
 		}
-
-		/* set cell pointers and slice the data blob */
+		/* move key values to the beginning of blob */
+		for (int i = 0, j = ind + 2; i < tab->nc; ++i, j+=2) {
+			size_t len = (size_t)ts.tok[j].end - (size_t)ts.tok[j].start;
+			memmove(&tab->blob[tab->sz], &ts.str[ts.tok[j].start], len);
+			tab->keys[i] = &tab->blob[tab->sz];
+			tab->blob[tab->sz + len] = '\0';
+			tab->sz += len + 1;
+		}
+		/* copy back 1st row */
+		memcpy(&tab->blob[tab->sz], stash, ssz);
+		free(stash);
+		stash = NULL;
 		tab->rows = (char ***)&tab->keys[tab->nc];
-		for (int k = 0; k < tab->nr; ++k) {
+		tab->rows[0] = &tab->keys[tab->nc + tab->nr];
+		for (int i = 0, j = ind + 3; i < tab->nc; ++i, j+=2) {
+			size_t len = (size_t)ts.tok[j].end - (size_t)ts.tok[j].start;
+			tab->rows[0][i] = &tab->blob[tab->sz];
+			tab->blob[tab->sz + len] = '\0';
+			tab->sz += len + 1;
+		}
+		/* process remaining rows */
+		for (int k = 1; k < tab->nr; ++k) {
 			tab->rows[k] = &tab->keys[tab->nc + tab->nr + k * tab->nc];
 			for (int i = 0, j = ind + 3 + k * (tab->nc*2+1); i < tab->nc; ++i, 
 					j+=2) {
-				tab->rows[k][i] = &ts.str[ts.tok[j].start];
-				ts.str[ts.tok[j].end] = '\0';
+				size_t len = (size_t)ts.tok[j].end - (size_t)ts.tok[j].start;
+				memmove(&tab->blob[tab->sz], &ts.str[ts.tok[j].start], len);
+				tab->rows[k][i] = &tab->blob[tab->sz];
+				tab->blob[tab->sz + len] = '\0';
+				tab->sz += len + 1;
 			}
 		}
-
-		/* hand over the blob from ts to tab */
-		tab->blob = ts.str;
-		ts.str = NULL;
-		tab->sz = ts.len + 1;
+		realloc(tab->blob, tab->sz);
 
 		/* clean up */
+		ts.str = NULL;
 		jsmnts_clear(&ts);
 
 		return tab->nr;
@@ -70,6 +99,26 @@ void jstab_clear(jstab_t *tab)
 	free(tab->blob);
 	free(tab->keys);
 	*tab = (jstab_t){0};
+}
+
+/* print char by char */
+void jstab_fprint_delim_c(FILE *stream, jstab_t *tab, char *delim)
+{
+	size_t col = 1;
+	for (size_t i = 0; i < tab->sz; ++i) {
+		if (tab->blob[i] == '\0') {
+			if (col++ == tab->nc) {
+				col = 1;
+				putc('\n', stream);
+			}
+			else {
+				fprintf(stream, "%s", delim);
+			}
+		}
+		else {
+			putc(tab->blob[i], stream);
+		}
+	}
 }
 
 /* print table */

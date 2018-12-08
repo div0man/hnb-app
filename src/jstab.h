@@ -25,4 +25,6 @@ void jstab_clear(jstab_t *tab);
 /* print tab */
 void jstab_fprint_delim(FILE *stream, jstab_t *tab, char *delim);
 
+void jstab_fprint_delim_c(FILE *stream, jstab_t *tab, char *delim);
+
 #endif /* __JSTAB_H_ */
